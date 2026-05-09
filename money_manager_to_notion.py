@@ -147,19 +147,14 @@ def extract_sql(db_path: str, last_sync: float = None) -> pd.DataFrame:
 
 # ----------------- TRANSFORM -----------------
 def transform_data(df: pd.DataFrame) -> pd.DataFrame:
-    """Transform extracted data for Notion upload."""
-    if not isinstance(df, pd.DataFrame):
-        print(f"[ERROR] Expected DataFrame, got {type(df).__name__}")
-        return pd.DataFrame()
+    if df.empty: return df
     
-    if df.empty:
-        return df
+    df['date'] = pd.to_datetime(df['timestamp'] + 978307200, unit='s', errors='coerce')
+    df['date'] = df['date'].dt.tz_localize('UTC').dt.tz_convert('Asia/Manila')
+    df['note'] = df['note'].astype(str).str.strip().replace(['', 'None', 'nan'], 'Untitled Transaction')
+    df['category_name'] = df['category_name'].astype(str).str.strip().replace(['', 'None', 'nan'], 'Uncategorized')
+    df['account_name'] = df['account_name'].astype(str).str.strip().replace(['', 'None', 'nan'], 'Unknown Account')
     
-    # Convert CoreData timestamp to Standard Unix Date
-    df['date'] = pd.to_datetime(df['timestamp'] + 978307200, unit='s', errors='coerce').dt.date
-    df['note'] = df['note'].fillna('Untitled Transaction')
-    df['category_name'] = df['category_name'].fillna('Uncategorized')
-    df['account_name'] = df['account_name'].fillna('Unknown Account')
     df['amount'] = df['amount'].abs() 
     return df
 
@@ -218,31 +213,26 @@ def load_to_notion(df: pd.DataFrame, database_id: str):
 
 # ----------------- EXPORT (CSV) -----------------
 def export_to_csv(df: pd.DataFrame):
-    """Export data to CSV file."""
-    if not isinstance(df, pd.DataFrame):
-        print(f"[ERROR] Expected DataFrame, got {type(df).__name__}")
-        return False
+    df_csv = df.drop(columns=['timestamp'])
     
-    if df.empty:
-        print("[WARNING] No data to export.")
-        return False
+    df_csv['date'] = df_csv['date'].dt.strftime('%Y-%m-%d %H:%M')
+    
+    df_csv = df_csv.rename(columns={
+        'note': 'Transaction',
+        'amount': 'Amount',
+        'category_name': 'Category',
+        'account_name': 'Account',
+        'date': 'Date'
+    })
+    filename = "Notion_Initial_Load.csv"
     
     try:
-        df_csv = df.drop(columns=['timestamp'])
-        df_csv = df_csv.rename(columns={
-            'note': 'Transaction',
-            'amount': 'Amount',
-            'category_name': 'Category',
-            'account_name': 'Account',
-            'date': 'Date'
-        })
-        filename = "Notion_Initial_Load.csv"
         df_csv.to_csv(filename, index=False)
         print(f"[SUCCESS] Exported {len(df_csv)} records to {filename}")
         print("[INFO] Next Step: Upload via Notion's 'Merge with CSV' feature.")
         return True
     except Exception as e:
-        print(f"[ERROR] Failed to export CSV: {e}")
+        print(f"[ERROR] CSV export failed: {e}")
         return False
 
 # ----------------- CLI MENU -----------------
